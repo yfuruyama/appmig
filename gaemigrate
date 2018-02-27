@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+migrate()
+{
+    local current_version=`gcloud --project=$project app versions list -s $service --filter="traffic_split=1.0 AND version.servingStatus='SERVING'" --format="value(version.id)"`
+    if [ -z current_version ] ; then
+        echo "ERROR: There is no version serving 100% traffic." >&2
+        exit 1
+    fi
+
+    for xxxx ; do
+        # show progress
+        if [ $dryrun == 0] ; then
+            gcloud --project=$project app services set-traffic $service --splits v2=.9,v1=.1 --split-by ip
+        fi
+        sleep $interval
+    done
+}
