@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -40,6 +41,51 @@ func parseRate(rate string) ([]uint64, error) {
 		rates = append(rates, rate)
 	}
 	return rates, nil
+}
+
+func execCommandWithMessage(msg, name string, arg ...string) (string, string, error) {
+	ticker := printProgressingMessage(msg)
+	stdout, stderr, err := execCommand(name, arg...)
+	ticker.Stop()
+	fmt.Printf(msg) // print message without progressing mark
+	return stdout, stderr, err
+}
+
+func execCommand(name string, arg ...string) (string, string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command(name, arg...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func printProgressingMessage(msg string) *time.Ticker {
+	progressMarks := []string{"-", "\\", "|", "/"}
+	ticker := time.NewTicker(time.Millisecond * 100)
+	go func() {
+		i := 0
+		for {
+			<-ticker.C
+			mark := progressMarks[i%len(progressMarks)]
+			fmt.Printf("%s %s\r", msg, mark)
+			i++
+		}
+	}()
+	return ticker
+}
+
+func prompt(msg string) bool {
+	fmt.Printf("%s [Y/n] ", msg)
+	s := bufio.NewScanner(os.Stdin)
+	s.Scan()
+	input := s.Text()
+	if input == "Y" || input == "" {
+		return true
+	} else {
+		return false
+	}
 }
 
 func main() {
@@ -94,11 +140,11 @@ func main() {
 	}
 
 	fmt.Printf("%v\n", getVersionResponses)
-	// currentVersion := strings.TrimSuffix(stdout, "\n")
-	// log.Printf("current version: %v\n", getVersionResponses)
 
-	// fmt.Printf("CURRENT: %s\n", currentVersion)
-	// fmt.Printf("TARGET: %s\n", version)
+	proceed := prompt(fmt.Sprintf("Do you want to proceed migration from %s to %s?", "a", version))
+	if !proceed {
+		os.Exit(0)
+	}
 
 	// for step := 0; step < len(rates); step++ {
 	// nextRate := rates[step]
@@ -123,37 +169,4 @@ func main() {
 
 	// time.Sleep(time.Second * time.Duration(interval))
 	// }
-}
-
-func execCommandWithMessage(msg, name string, arg ...string) (string, string, error) {
-	ticker := printProgressingMessage(msg)
-	stdout, stderr, err := execCommand(name, arg...)
-	ticker.Stop()
-	fmt.Printf(msg) // print message without progressing mark
-	return stdout, stderr, err
-}
-
-func execCommand(name string, arg ...string) (string, string, error) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd := exec.Command(name, arg...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
-}
-
-func printProgressingMessage(msg string) *time.Ticker {
-	progressMarks := []string{"-", "\\", "|", "/"}
-	ticker := time.NewTicker(time.Millisecond * 100)
-	go func() {
-		i := 0
-		for {
-			<-ticker.C
-			mark := progressMarks[i%len(progressMarks)]
-			fmt.Printf("%s %s\r", msg, mark)
-			i++
-		}
-	}()
-	return ticker
 }
