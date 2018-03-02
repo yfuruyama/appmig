@@ -22,7 +22,6 @@ Options:
     --version  (required)    Version
     --rate     (required)    Rate
     --interval               Interval Second (default: 10)
-    --dryrun                 Dry run
 `
 
 type GetVersionResponse struct {
@@ -43,14 +42,6 @@ func parseRate(rate string) ([]uint64, error) {
 	return rates, nil
 }
 
-func execCommandWithMessage(msg, name string, arg ...string) (string, string, error) {
-	ticker := printProgressingMessage(msg)
-	stdout, stderr, err := execCommand(name, arg...)
-	ticker.Stop()
-	fmt.Printf(msg) // print message without progressing mark
-	return stdout, stderr, err
-}
-
 func execCommand(name string, arg ...string) (string, string, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -59,6 +50,21 @@ func execCommand(name string, arg ...string) (string, string, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
+}
+
+func execCommandWithMessage(msg, name string, arg ...string) (string, string, error) {
+	ticker := printProgressingMessage(msg)
+	stdout, stderr, err := execCommand(name, arg...)
+	ticker.Stop()
+	fmt.Printf(msg) // print message without progressing mark
+	return stdout, stderr, err
+}
+
+func execFuncWithMessage(msg string, fun func()) {
+	ticker := printProgressingMessage(msg)
+	fun()
+	ticker.Stop()
+	fmt.Printf(msg) // print message without progressing mark
 }
 
 func printProgressingMessage(msg string) *time.Ticker {
@@ -94,14 +100,12 @@ func main() {
 	var version string
 	var rate string
 	var interval uint
-	var dryrun bool
 
 	flag.StringVar(&project, "project", "", "Project ID")
 	flag.StringVar(&service, "service", "", "Service ID")
 	flag.StringVar(&version, "version", "", "Version")
 	flag.StringVar(&rate, "rate", "", "Rate (comma separated)")
 	flag.UintVar(&interval, "interval", 10, "Interval Second")
-	flag.BoolVar(&dryrun, "dryrun", false, "Dry Run")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -146,27 +150,29 @@ func main() {
 		os.Exit(0)
 	}
 
-	// for step := 0; step < len(rates); step++ {
-	// nextRate := rates[step]
-	// remainRate := 100 - nextRate
-	// if !dryrun {
-	// out, err := exec.Command("gcloud",
-	// "--project="+project,
-	// "app",
-	// "services",
-	// "set-traffic",
-	// service,
-	// fmt.Sprintf("--splits=%s=%d,%s=%d", currentVersion, remainRate, version, nextRate),
-	// "--split-by=ip",
-	// "--quiet",
-	// ).CombinedOutput()
-	// if err != nil {
-	// // fmt.Printf("failed to set traffic: project=%s, version=%s, rate=%d, error=%s", project, version, nextRate, err)
-	// // os.Exit(1)
-	// }
-	// fmt.Printf("%s", out)
-	// }
+	for step := 0; step < len(rates); step++ {
+		nextRate := rates[step]
+		remainRate := 100 - nextRate
+		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", "a", version),
+			"gcloud",
+			"--project="+project,
+			"app",
+			"services",
+			"set-traffic",
+			service,
+			fmt.Sprintf("--splits=%s=%d,%s=%d", getVersionResponses[0].Id, remainRate, version, nextRate),
+			"--split-by=ip",
+			"--quiet",
+		)
+		if err != nil {
+			fmt.Printf("failed to set traffic: project=%s, version=%s, rate=%d, error=%s", project, version, nextRate, stderr)
+			os.Exit(1)
+		}
+		fmt.Printf("DONE\n")
 
-	// time.Sleep(time.Second * time.Duration(interval))
-	// }
+		execFuncWithMessage("Sleeping...", func() {
+			time.Sleep(time.Second * time.Duration(interval))
+		})
+		fmt.Printf("\n")
+	}
 }
