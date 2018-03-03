@@ -14,13 +14,15 @@ import (
 )
 
 var usage = `Usage:
-    gaemigrate [options...]
+    appmig [options...]
 Options:
-    --project  (required)    Project ID
-    --service  (required)    Service ID
-    --version  (required)    Version
-    --rate     (required)    Rate
-    --interval               Interval Second (default: 10)
+    --project=PROJECT  (required)    Project ID
+    --service=SERVICE  (required)    Service ID
+    --version=VERSION  (required)    Version
+    --rate=RATE        (required)    Rate
+    --interval=INTERVAL; default=10               Interval Second (default: 10)
+    --verbose                
+    --quiet                  Disable all interactive prompts
 `
 
 type ServingVersion struct {

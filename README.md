@@ -1,8 +1,9 @@
-gaemigrate
+appmig
 ===
+App Engine step-by-step traffic migration tool
 
 ```
-$ go run cmd/gaemigrate/main.go --project=myproject --service=default --version=v2 --rate=10,50,100 --interval=5
+$ appmig --project=myproject --service=default --version=v2 --rate=10,50,100 --interval=5
 
 Checking current serving version... : v1(100%)
 Migration: project = myproject, service = default, from = v1, to = v2
