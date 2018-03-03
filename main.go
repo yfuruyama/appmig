@@ -70,8 +70,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	appmig := NewAppmig(project, service, verbose, quiet)
-	err = appmig.Migrate(version, rates, interval)
+	executor := &DefaultExecutor{}
+	appmig := NewAppmig(project, service, verbose, quiet, executor)
+	err = appmig.Run(version, rates, interval)
 	if err != nil {
 		fmt.Printf("%s", err)
 		os.Exit(1)
