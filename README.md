@@ -13,16 +13,16 @@ With this tool, you can control how fast migration proceeds precisely.
 $ go get -u github.com/addsict/appmig
 ```
 
-This tool uses [gcloud](https://cloud.google.com/sdk/gcloud/) for manipulating App Engine services.  
+This tool uses [gcloud](https://cloud.google.com/sdk/gcloud/) to manipulate App Engine services.  
 If you have not installed it yet, please install it before.
 
 ## Usage
 
-Please look at `appmig --help` for more details.
-
 ```
 $ appmig --project=PROJECT --service=SERVICE --version=VERSION --rate=RATE --interval=INTERVAL
 ```
+
+Please look at `appmig --help` for more details.
 
 ## Example
 
@@ -54,7 +54,7 @@ Finish migration!
 
 ## How it works
 
-Given that migration from `v1` to `v2` will be held, this tool executes `gcloud app services set-traffic --splits=<v1=x%,v2=y%>` over again and again to increase the traffic of `v2` gradually.   
-Each step increases the ratio of `v2` traffic according to the `--rate` option.
+If you are migrating from `v1` to `v2`, this tool iterates `gcloud app services set-traffic --splits=<v1=x%,v2=y%>` to increase the `v2` traffic gradually.   
+Each step of the execution increases the ratio of `v2` traffic according to the `--rate` option.
 
 Note that traffic splitting is held by the IP address of the requesting client.
