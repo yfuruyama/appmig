@@ -2,7 +2,9 @@
 
 This tool allows you to migrate an App Engine service gradually from one version to another.
 
-Normally, you can migrate a service by `gcloud app versions migrate` command, but the speed of migration is out of control, sometimes it ends very fast.  
+## Description
+
+Normally, you can migrate a service by `gcloud app versions migrate` command or from the web console, but the speed of migration is out of control, sometimes it ends very fast.  
 With this tool, you can control how fast migration proceeds precisely.
 
 ## Installation
@@ -11,16 +13,21 @@ With this tool, you can control how fast migration proceeds precisely.
 $ go get -u github.com/addsict/appmig
 ```
 
-This tool uses `gcloud` for manipulating App Engine services.  
-If you have not installed it yet, please install [it](https://cloud.google.com/sdk/downloads) before.
+This tool uses [gcloud](https://cloud.google.com/sdk/gcloud/) for manipulating App Engine services.  
+If you have not installed it yet, please install it before.
 
 ## Usage
 
-Please `appmig --help` for more details.
+Please look at `appmig --help` for more details.
+
+```
+$ appmig --project=PROJECT --service=SERVICE --version=VERSION --rate=RATE --interval=INTERVAL
+```
+
+## Example
 
 ```
 $ appmig --project=mytest --service=default --version=v2 --rate=1,10,25,50,100 --interval=30
-...
 
 Checking existence of version v2... : OK
 Checking current serving version... : v1(100%)
@@ -47,4 +54,7 @@ Finish migration!
 
 ## How it works
 
-In the tool, `gcloud app services set-traffic --splits` is used.
+Given that migration from `v1` to `v2` will be held, this tool executes `gcloud app services set-traffic --splits=<v1=x%,v2=y%>` over again and again to increase the traffic of `v2` gradually.   
+Each step increases the ratio of `v2` traffic according to the `--rate` option.
+
+Note that traffic splitting is held by the IP address of the requesting client.

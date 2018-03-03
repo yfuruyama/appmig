@@ -49,13 +49,13 @@ func main() {
 	var verbose bool
 	var quiet bool
 
-	flag.StringVar(&project, "project", "", "Project ID")
-	flag.StringVar(&service, "service", "", "Service ID")
-	flag.StringVar(&version, "version", "", "Version")
-	flag.StringVar(&rate, "rate", "", "Rate (comma separated)")
-	flag.UintVar(&interval, "interval", 10, "Interval Second")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose logging")
-	flag.BoolVar(&quiet, "quiet", false, "Disable all interactive prompts")
+	flag.StringVar(&project, "project", "", "")
+	flag.StringVar(&service, "service", "", "")
+	flag.StringVar(&version, "version", "", "")
+	flag.StringVar(&rate, "rate", "", "")
+	flag.UintVar(&interval, "interval", 10, "")
+	flag.BoolVar(&verbose, "verbose", false, "")
+	flag.BoolVar(&quiet, "quiet", false, "")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
