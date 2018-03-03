@@ -61,7 +61,8 @@ func execCommandWithMessage(msg, name string, arg ...string) (string, string, er
 	ticker := printProgressingMessage(msg)
 	stdout, stderr, err := execCommand(name, arg...)
 	ticker.Stop()
-	fmt.Printf(msg) // print message without progressing mark
+	time.Sleep(time.Microsecond * 500) // waiting for progressing print
+	fmt.Print(msg)                     // print message without progressing mark
 	return stdout, stderr, err
 }
 
@@ -69,7 +70,8 @@ func execFuncWithMessage(msg string, fun func()) {
 	ticker := printProgressingMessage(msg)
 	fun()
 	ticker.Stop()
-	fmt.Printf(msg) // print message without progressing mark
+	time.Sleep(time.Microsecond * 500) // waiting for progressing print
+	fmt.Print(msg)                     // print message without progressing mark
 }
 
 func printProgressingMessage(msg string) *time.Ticker {
@@ -202,6 +204,12 @@ func main() {
 		currentVersion.TrafficSplit = remainRate
 		targetVersion.TrafficSplit = nextRate
 
+		var splits string
+		if nextRate == 1.0 {
+			splits = fmt.Sprintf("%s=1.0", targetVersion.Id)
+		} else {
+			splits = fmt.Sprintf("%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate)
+		}
 		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()),
 			"gcloud",
 			"--project="+project,
@@ -209,7 +217,7 @@ func main() {
 			"services",
 			"set-traffic",
 			service,
-			fmt.Sprintf("--splits=%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate),
+			"--splits="+splits,
 			"--split-by=ip",
 			"--quiet",
 		)
@@ -219,10 +227,12 @@ func main() {
 		}
 		fmt.Printf(" DONE\n")
 
-		execFuncWithMessage("Waiting...", func() {
-			time.Sleep(time.Second * time.Duration(interval))
-		})
-		fmt.Printf("  \n")
+		if step != len(rates)-1 {
+			execFuncWithMessage("Waiting...", func() {
+				time.Sleep(time.Second * time.Duration(interval))
+			})
+			fmt.Printf("  \n")
+		}
 	}
 
 	fmt.Println("Finish migration!")
