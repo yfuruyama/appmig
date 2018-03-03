@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -24,20 +23,26 @@ Options:
     --interval               Interval Second (default: 10)
 `
 
-type GetVersionResponse struct {
+type ServingVersion struct {
 	Id           string  `json:"id"`
 	TrafficSplit float64 `json:"traffic_split"`
 }
 
-func parseRate(rate string) ([]uint64, error) {
+func (s ServingVersion) String() string {
+	trafficPercent := uint(s.TrafficSplit * 100)
+	return fmt.Sprintf("%s(%d%%)", s.Id, trafficPercent)
+}
+
+// TODO: validate rate
+func parseRate(rate string) ([]float64, error) {
 	ratesStr := strings.Split(rate, ",")
-	rates := make([]uint64, 0)
+	rates := make([]float64, 0)
 	for _, rateStr := range ratesStr {
 		rate, err := strconv.ParseUint(rateStr, 10, 64)
 		if err != nil {
 			return nil, err
 		}
-		rates = append(rates, rate)
+		rates = append(rates, float64(rate)/100.0)
 	}
 	return rates, nil
 }
@@ -120,7 +125,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Printf("project=%s, service=%s, version=%s, rates=%v, interval=%d\n", project, service, version, rates, interval)
+	// TODO: check version exists
+	// TODO: servingversions == 0
 
 	stdout, stderr, err := execCommandWithMessage("Checking current serving version...",
 		"gcloud",
@@ -137,42 +143,87 @@ func main() {
 		os.Exit(1)
 	}
 
-	var getVersionResponses []GetVersionResponse
-	if err = json.Unmarshal([]byte(stdout), &getVersionResponses); err != nil {
+	var servingVersions []ServingVersion
+	if err = json.Unmarshal([]byte(stdout), &servingVersions); err != nil {
 		fmt.Printf("failed to parse current serving version: %s", err)
 		os.Exit(1)
 	}
+	var servingVersionStrings []string
+	for _, s := range servingVersions {
+		servingVersionStrings = append(servingVersionStrings, s.String())
+	}
+	fmt.Printf(" : %s\n", strings.Join(servingVersionStrings, ", "))
 
-	fmt.Printf("%v\n", getVersionResponses)
+	// validate serving versions
+	if len(servingVersions) == 1 && servingVersions[0].Id == version {
+		fmt.Printf("Already %s is serving\n", version)
+		os.Exit(0)
+	}
+	if len(servingVersions) == 2 && servingVersions[0].Id != version && servingVersions[1].Id != version {
+		fmt.Printf("Multiple versions are serving\n")
+		os.Exit(0)
+	}
+	if len(servingVersions) > 2 {
+		fmt.Printf("Multiple versions are serving\n")
+		os.Exit(0)
+	}
 
-	proceed := prompt(fmt.Sprintf("Do you want to proceed migration from %s to %s?", "a", version))
+	var currentVersion ServingVersion
+	var targetVersion ServingVersion
+	if len(servingVersions) == 1 {
+		currentVersion = servingVersions[0]
+		targetVersion = ServingVersion{
+			Id:           version,
+			TrafficSplit: 0.0,
+		}
+	} else {
+		if servingVersions[0].Id != version {
+			currentVersion = servingVersions[0]
+			targetVersion = servingVersions[1]
+		} else {
+			currentVersion = servingVersions[1]
+			targetVersion = servingVersions[0]
+		}
+	}
+
+	// confirm user
+	fmt.Printf("Migration: project = %s, service = %s, from = %s, to = %s\n", project, service, currentVersion.Id, targetVersion.Id)
+	proceed := prompt("Do you want to continue?")
 	if !proceed {
 		os.Exit(0)
 	}
 
 	for step := 0; step < len(rates); step++ {
 		nextRate := rates[step]
-		remainRate := 100 - nextRate
-		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", "a", version),
+		remainRate := 1.0 - nextRate
+		if nextRate <= targetVersion.TrafficSplit {
+			continue
+		}
+		currentVersion.TrafficSplit = remainRate
+		targetVersion.TrafficSplit = nextRate
+
+		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()),
 			"gcloud",
 			"--project="+project,
 			"app",
 			"services",
 			"set-traffic",
 			service,
-			fmt.Sprintf("--splits=%s=%d,%s=%d", getVersionResponses[0].Id, remainRate, version, nextRate),
+			fmt.Sprintf("--splits=%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate),
 			"--split-by=ip",
 			"--quiet",
 		)
 		if err != nil {
-			fmt.Printf("failed to set traffic: project=%s, version=%s, rate=%d, error=%s", project, version, nextRate, stderr)
+			fmt.Printf("failed to set traffic: rate=%d, error=%s", uint(nextRate)*100, stderr)
 			os.Exit(1)
 		}
-		fmt.Printf("DONE\n")
+		fmt.Printf(" DONE\n")
 
-		execFuncWithMessage("Sleeping...", func() {
+		execFuncWithMessage("Waiting...", func() {
 			time.Sleep(time.Second * time.Duration(interval))
 		})
-		fmt.Printf("\n")
+		fmt.Printf("  \n")
 	}
+
+	fmt.Println("Finish migration!")
 }
