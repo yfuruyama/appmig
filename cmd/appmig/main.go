@@ -15,14 +15,18 @@ import (
 
 var usage = `Usage:
     appmig [options...]
+
+Example:
+    appmig --project=mytest --service=default --version=v2 --rate=1,5,10,25,50,75,100 --interval=30
+
 Options:
-    --project=PROJECT  (required)    Project ID
-    --service=SERVICE  (required)    Service ID
-    --version=VERSION  (required)    Version
-    --rate=RATE        (required)    Rate
-    --interval=INTERVAL; default=10               Interval Second (default: 10)
-    --verbose                
-    --quiet                  Disable all interactive prompts
+    --project=PROJECT   (required)    Project ID
+    --service=SERVICE   (required)    Service ID
+    --version=VERSION   (required)    Version
+    --rate=RATE         (required)    Rate, commma separated (ex: 1,5,10,25,50,75,100)
+    --interval=INTERVAL               Interval Second (default: 10)
+    --verbose                         Verbose Logging
+    --quiet                           Disable all interactive prompts
 `
 
 type ServingVersion struct {
@@ -35,7 +39,6 @@ func (s ServingVersion) String() string {
 	return fmt.Sprintf("%s(%d%%)", s.Id, trafficPercent)
 }
 
-// TODO: validate rate
 func parseRate(rate string) ([]float64, error) {
 	ratesStr := strings.Split(rate, ",")
 	rates := make([]float64, 0)
@@ -43,6 +46,9 @@ func parseRate(rate string) ([]float64, error) {
 		rate, err := strconv.ParseUint(rateStr, 10, 64)
 		if err != nil {
 			return nil, err
+		}
+		if rate > 100 {
+			return nil, fmt.Errorf("rate over 100")
 		}
 		rates = append(rates, float64(rate)/100.0)
 	}
@@ -59,7 +65,12 @@ func execCommand(name string, arg ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-func execCommandWithMessage(msg, name string, arg ...string) (string, string, error) {
+func execCommandWithMessage(msg string, verbose bool, name string, arg ...string) (string, string, error) {
+	if verbose {
+		command := name + " " + strings.Join(arg, " ")
+		fmt.Println(command)
+	}
+
 	ticker := printProgressingMessage(msg)
 	stdout, stderr, err := execCommand(name, arg...)
 	ticker.Stop()
@@ -109,6 +120,7 @@ func main() {
 	var version string
 	var rate string
 	var interval uint
+	var verbose bool
 	var quiet bool
 
 	flag.StringVar(&project, "project", "", "Project ID")
@@ -116,6 +128,7 @@ func main() {
 	flag.StringVar(&version, "version", "", "Version")
 	flag.StringVar(&rate, "rate", "", "Rate (comma separated)")
 	flag.UintVar(&interval, "interval", 10, "Interval Second")
+	flag.BoolVar(&verbose, "verbose", false, "Verbose logging")
 	flag.BoolVar(&quiet, "quiet", false, "Disable all interactive prompts")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
@@ -127,12 +140,12 @@ func main() {
 
 	rates, err := parseRate(rate)
 	if err != nil {
-		flag.Usage()
+		fmt.Printf("invalid value: --rate=%s\n", rate)
 		os.Exit(1)
 	}
 
 	// check version existence
-	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version),
+	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version), verbose,
 		"gcloud",
 		"app",
 		"versions",
@@ -149,7 +162,7 @@ func main() {
 	fmt.Printf(" : OK\n")
 
 	// check serving version
-	stdout, stderr, err = execCommandWithMessage("Checking current serving version...",
+	stdout, stderr, err = execCommandWithMessage("Checking current serving version...", verbose,
 		"gcloud",
 		"app",
 		"versions",
@@ -236,7 +249,7 @@ func main() {
 		} else {
 			splits = fmt.Sprintf("%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate)
 		}
-		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()),
+		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()), verbose,
 			"gcloud",
 			"--project="+project,
 			"app",
@@ -261,5 +274,6 @@ func main() {
 		}
 	}
 
+	fmt.Printf("\n")
 	fmt.Println("Finish migration!")
 }
