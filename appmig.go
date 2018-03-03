@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,65 +29,6 @@ func (s ServingVersion) String() string {
 	return fmt.Sprintf("%s(%d%%)", s.Id, trafficPercent)
 }
 
-func execCommand(name string, arg ...string) (string, string, error) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd := exec.Command(name, arg...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
-}
-
-func execCommandWithMessage(msg string, verbose bool, name string, arg ...string) (string, string, error) {
-	if verbose {
-		command := name + " " + strings.Join(arg, " ")
-		fmt.Println(command)
-	}
-
-	ticker := printProgressingMessage(msg)
-	stdout, stderr, err := execCommand(name, arg...)
-	ticker.Stop()
-	time.Sleep(time.Microsecond * 500) // waiting for progressing print
-	fmt.Print(msg)                     // print message without progressing mark
-	return stdout, stderr, err
-}
-
-func execFuncWithMessage(msg string, fun func()) {
-	ticker := printProgressingMessage(msg)
-	fun()
-	ticker.Stop()
-	time.Sleep(time.Microsecond * 500) // waiting for progressing print
-	fmt.Print(msg)                     // print message without progressing mark
-}
-
-func printProgressingMessage(msg string) *time.Ticker {
-	progressMarks := []string{"-", "\\", "|", "/"}
-	ticker := time.NewTicker(time.Millisecond * 100)
-	go func() {
-		i := 0
-		for {
-			<-ticker.C
-			mark := progressMarks[i%len(progressMarks)]
-			fmt.Printf("%s %s\r", msg, mark)
-			i++
-		}
-	}()
-	return ticker
-}
-
-func prompt(msg string) bool {
-	fmt.Printf("%s [Y/n] ", msg)
-	s := bufio.NewScanner(os.Stdin)
-	s.Scan()
-	input := s.Text()
-	if input == "Y" || input == "" {
-		return true
-	} else {
-		return false
-	}
-}
-
 func NewAppmig(project, service string, verbose, quiet bool) *Appmig {
 	return &Appmig{
 		project: project,
@@ -98,7 +40,7 @@ func NewAppmig(project, service string, verbose, quiet bool) *Appmig {
 
 func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 	// check version existence
-	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version), a.verbose,
+	stdout, stderr, err := a.execCommandWithMessage(fmt.Sprintf("Checking existence of version %s... ", version),
 		"gcloud",
 		"app",
 		"versions",
@@ -109,12 +51,12 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 		version,
 	)
 	if err != nil {
-		return fmt.Errorf(" %s", stderr)
+		return errors.New(stderr)
 	}
-	fmt.Printf(" : OK\n")
+	fmt.Printf(": OK\n")
 
 	// check serving version
-	stdout, stderr, err = execCommandWithMessage("Checking current serving version...", a.verbose,
+	stdout, stderr, err = a.execCommandWithMessage("Checking current serving version... ",
 		"gcloud",
 		"app",
 		"versions",
@@ -125,7 +67,7 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 		"--format=json",
 	)
 	if err != nil {
-		return fmt.Errorf(" %s", stderr)
+		return errors.New(stderr)
 	}
 
 	var servingVersions []ServingVersion
@@ -136,7 +78,7 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 	for _, s := range servingVersions {
 		servingVersionStrings = append(servingVersionStrings, s.String())
 	}
-	fmt.Printf(" : %s\n", strings.Join(servingVersionStrings, ", "))
+	fmt.Printf(": %s\n", strings.Join(servingVersionStrings, ", "))
 
 	// validate serving versions
 	if len(servingVersions) == 0 {
@@ -172,16 +114,16 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 
 	// confirm user
 	fmt.Printf("\n")
-	fmt.Printf("Migrate traffic: project = %s, service = %s, from = %s, to = %s\n", a.project, a.service, currentVersion.Id, targetVersion.Id)
+	fmt.Printf("Migrate traffic: project=%s, service=%s, from=%s, to=%s\n", a.project, a.service, currentVersion.Id, targetVersion.Id)
 	if !a.quiet {
-		if proceed := prompt("Do you want to continue?"); !proceed {
+		if proceed := a.prompt("Do you want to continue?"); !proceed {
 			return nil
 		}
 	}
 	fmt.Printf("\n")
 
-	for step := 0; step < len(rates); step++ {
-		nextRate := rates[step]
+	for i := 0; i < len(rates); i++ {
+		nextRate := rates[i]
 		remainRate := 1.0 - nextRate
 		if nextRate <= targetVersion.TrafficSplit {
 			continue
@@ -195,7 +137,7 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 		} else {
 			splits = fmt.Sprintf("%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate)
 		}
-		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()), a.verbose,
+		_, stderr, err := a.execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s... ", currentVersion.String(), targetVersion.String()),
 			"gcloud",
 			"--project="+a.project,
 			"app",
@@ -207,12 +149,13 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 			"--quiet",
 		)
 		if err != nil {
-			return fmt.Errorf("failed to set traffic: rate=%d, error=%s", uint(nextRate)*100, stderr)
+			return fmt.Errorf("%s", stderr)
 		}
-		fmt.Printf(" : DONE\n")
+		fmt.Printf(": DONE\n")
 
-		if step != len(rates)-1 {
-			execFuncWithMessage("Waiting...", func() {
+		// sleep until next step
+		if i != len(rates)-1 {
+			a.execFuncWithMessage("Waiting... ", func() {
 				time.Sleep(time.Second * time.Duration(interval))
 			})
 			fmt.Printf("  \n")
@@ -220,7 +163,66 @@ func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 	}
 
 	fmt.Printf("\n")
-	fmt.Println("Finish migration!")
+	fmt.Println("Finish migration! 🎉")
 
 	return nil
+}
+
+func (a *Appmig) execCommand(name string, arg ...string) (string, string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := exec.Command(name, arg...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func (a *Appmig) execCommandWithMessage(msg string, name string, arg ...string) (string, string, error) {
+	if a.verbose {
+		command := name + " " + strings.Join(arg, " ")
+		fmt.Println(command)
+	}
+
+	ticker := a.printProgressingMessage(msg)
+	stdout, stderr, err := a.execCommand(name, arg...)
+	ticker.Stop()
+	time.Sleep(time.Microsecond * 500) // waiting for progressing print
+	fmt.Printf("\r%s", msg)            // print message without progressing mark
+	return stdout, stderr, err
+}
+
+func (a *Appmig) execFuncWithMessage(msg string, fun func()) {
+	ticker := a.printProgressingMessage(msg)
+	fun()
+	ticker.Stop()
+	time.Sleep(time.Microsecond * 500) // waiting for progressing print
+	fmt.Printf("\r%s", msg)            // print message without progressing mark
+}
+
+func (a *Appmig) printProgressingMessage(msg string) *time.Ticker {
+	progressMarks := []string{"-", "\\", "|", "/"}
+	ticker := time.NewTicker(time.Millisecond * 100)
+	go func() {
+		i := 0
+		for {
+			<-ticker.C
+			mark := progressMarks[i%len(progressMarks)]
+			fmt.Printf("\r%s%s", msg, mark)
+			i++
+		}
+	}()
+	return ticker
+}
+
+func (a *Appmig) prompt(msg string) bool {
+	fmt.Printf("%s [Y/n] ", msg)
+	s := bufio.NewScanner(os.Stdin)
+	s.Scan()
+	input := s.Text()
+	if input == "Y" || input == "" {
+		return true
+	} else {
+		return false
+	}
 }

@@ -18,7 +18,7 @@ Options:
     --project=PROJECT   (required)    Project ID
     --service=SERVICE   (required)    Service ID
     --version=VERSION   (required)    Version
-    --rate=RATE         (required)    Rate, commma separated (ex: 1,5,10,25,50,75,100)
+    --rate=RATE         (required)    Traffic rate(%) in each step, commma separated (ex: 1,5,10,25,50,75,100)
     --interval=INTERVAL               Interval Second (default: 10)
     --verbose                         Verbose Logging
     --quiet                           Disable all interactive prompts
@@ -30,7 +30,7 @@ func parseRate(rate string) ([]float64, error) {
 	for _, rateStr := range ratesStr {
 		rate, err := strconv.ParseUint(rateStr, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("can not parse %s as integer", rateStr)
 		}
 		if rate > 100 {
 			return nil, fmt.Errorf("rate over 100")
@@ -66,7 +66,7 @@ func main() {
 
 	rates, err := parseRate(rate)
 	if err != nil {
-		fmt.Printf("invalid value: --rate=%s\n", rate)
+		fmt.Printf("invalid `--rate` option: %s\n", err)
 		os.Exit(1)
 	}
 
