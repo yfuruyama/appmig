@@ -26,6 +26,8 @@ Please look at `appmig --help` for more details.
 
 ## Example
 
+Following example shows migration from `v1` to `v2` happens with steps `1% -> 10% -> 25% -> 50% -> 100%` in 30 seconds interval.
+
 ```
 $ appmig --project=mytest --service=default --version=v2 --rate=1,10,25,50,100 --interval=30
 
