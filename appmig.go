@@ -4,30 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
 
-var usage = `Usage:
-    appmig [options...]
-
-Example:
-    appmig --project=mytest --service=default --version=v2 --rate=1,5,10,25,50,75,100 --interval=30
-
-Options:
-    --project=PROJECT   (required)    Project ID
-    --service=SERVICE   (required)    Service ID
-    --version=VERSION   (required)    Version
-    --rate=RATE         (required)    Rate, commma separated (ex: 1,5,10,25,50,75,100)
-    --interval=INTERVAL               Interval Second (default: 10)
-    --verbose                         Verbose Logging
-    --quiet                           Disable all interactive prompts
-`
+type Appmig struct {
+	project string
+	service string
+	verbose bool
+	quiet   bool
+}
 
 type ServingVersion struct {
 	Id           string  `json:"id"`
@@ -37,22 +26,6 @@ type ServingVersion struct {
 func (s ServingVersion) String() string {
 	trafficPercent := uint(s.TrafficSplit * 100)
 	return fmt.Sprintf("%s(%d%%)", s.Id, trafficPercent)
-}
-
-func parseRate(rate string) ([]float64, error) {
-	ratesStr := strings.Split(rate, ",")
-	rates := make([]float64, 0)
-	for _, rateStr := range ratesStr {
-		rate, err := strconv.ParseUint(rateStr, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		if rate > 100 {
-			return nil, fmt.Errorf("rate over 100")
-		}
-		rates = append(rates, float64(rate)/100.0)
-	}
-	return rates, nil
 }
 
 func execCommand(name string, arg ...string) (string, string, error) {
@@ -114,73 +87,50 @@ func prompt(msg string) bool {
 	}
 }
 
-func main() {
-	var project string
-	var service string
-	var version string
-	var rate string
-	var interval uint
-	var verbose bool
-	var quiet bool
-
-	flag.StringVar(&project, "project", "", "Project ID")
-	flag.StringVar(&service, "service", "", "Service ID")
-	flag.StringVar(&version, "version", "", "Version")
-	flag.StringVar(&rate, "rate", "", "Rate (comma separated)")
-	flag.UintVar(&interval, "interval", 10, "Interval Second")
-	flag.BoolVar(&verbose, "verbose", false, "Verbose logging")
-	flag.BoolVar(&quiet, "quiet", false, "Disable all interactive prompts")
-	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	flag.Parse()
-
-	if project == "" || service == "" || version == "" || rate == "" {
-		flag.Usage()
-		os.Exit(1)
+func NewAppmig(project, service string, verbose, quiet bool) *Appmig {
+	return &Appmig{
+		project: project,
+		service: service,
+		verbose: verbose,
+		quiet:   quiet,
 	}
+}
 
-	rates, err := parseRate(rate)
-	if err != nil {
-		fmt.Printf("invalid value: --rate=%s\n", rate)
-		os.Exit(1)
-	}
-
+func (a *Appmig) Migrate(version string, rates []float64, interval uint) error {
 	// check version existence
-	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version), verbose,
+	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version), a.verbose,
 		"gcloud",
 		"app",
 		"versions",
 		"describe",
-		"--project="+project,
-		"--service="+service,
+		"--project="+a.project,
+		"--service="+a.service,
 		"--format=value(id)",
 		version,
 	)
 	if err != nil {
-		fmt.Printf(" %s", stderr)
-		os.Exit(1)
+		return fmt.Errorf(" %s", stderr)
 	}
 	fmt.Printf(" : OK\n")
 
 	// check serving version
-	stdout, stderr, err = execCommandWithMessage("Checking current serving version...", verbose,
+	stdout, stderr, err = execCommandWithMessage("Checking current serving version...", a.verbose,
 		"gcloud",
 		"app",
 		"versions",
 		"list",
-		"--project="+project,
-		"--service="+service,
+		"--project="+a.project,
+		"--service="+a.service,
 		"--filter=version.servingStatus=SERVING AND traffic_split>0",
 		"--format=json",
 	)
 	if err != nil {
-		fmt.Printf(" %s", stderr)
-		os.Exit(1)
+		return fmt.Errorf(" %s", stderr)
 	}
 
 	var servingVersions []ServingVersion
 	if err = json.Unmarshal([]byte(stdout), &servingVersions); err != nil {
-		fmt.Printf("failed to parse current serving version: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to parse current serving version: %s", err)
 	}
 	var servingVersionStrings []string
 	for _, s := range servingVersions {
@@ -190,20 +140,16 @@ func main() {
 
 	// validate serving versions
 	if len(servingVersions) == 0 {
-		fmt.Println("No serving version found")
-		os.Exit(1)
+		return fmt.Errorf("serving version found\n")
 	}
 	if len(servingVersions) == 1 && servingVersions[0].Id == version {
-		fmt.Printf("Already %s is serving\n", version)
-		os.Exit(0)
+		return fmt.Errorf("Already %s is serving\n", version)
 	}
 	if len(servingVersions) == 2 && servingVersions[0].Id != version && servingVersions[1].Id != version {
-		fmt.Printf("Multiple versions are serving\n")
-		os.Exit(1)
+		return fmt.Errorf("Multiple versions are serving\n")
 	}
 	if len(servingVersions) > 2 {
-		fmt.Printf("Multiple versions are serving\n")
-		os.Exit(1)
+		return fmt.Errorf("Multiple versions are serving\n")
 	}
 
 	var currentVersion ServingVersion
@@ -226,10 +172,10 @@ func main() {
 
 	// confirm user
 	fmt.Printf("\n")
-	fmt.Printf("Migrate traffic: project = %s, service = %s, from = %s, to = %s\n", project, service, currentVersion.Id, targetVersion.Id)
-	if !quiet {
+	fmt.Printf("Migrate traffic: project = %s, service = %s, from = %s, to = %s\n", a.project, a.service, currentVersion.Id, targetVersion.Id)
+	if !a.quiet {
 		if proceed := prompt("Do you want to continue?"); !proceed {
-			os.Exit(0)
+			return nil
 		}
 	}
 	fmt.Printf("\n")
@@ -249,20 +195,19 @@ func main() {
 		} else {
 			splits = fmt.Sprintf("%s=%f,%s=%f", currentVersion.Id, remainRate, targetVersion.Id, nextRate)
 		}
-		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()), verbose,
+		_, stderr, err := execCommandWithMessage(fmt.Sprintf("Migrating from %s to %s...", currentVersion.String(), targetVersion.String()), a.verbose,
 			"gcloud",
-			"--project="+project,
+			"--project="+a.project,
 			"app",
 			"services",
 			"set-traffic",
-			service,
+			a.service,
 			"--splits="+splits,
 			"--split-by=ip",
 			"--quiet",
 		)
 		if err != nil {
-			fmt.Printf("failed to set traffic: rate=%d, error=%s", uint(nextRate)*100, stderr)
-			os.Exit(1)
+			return fmt.Errorf("failed to set traffic: rate=%d, error=%s", uint(nextRate)*100, stderr)
 		}
 		fmt.Printf(" : DONE\n")
 
@@ -276,4 +221,6 @@ func main() {
 
 	fmt.Printf("\n")
 	fmt.Println("Finish migration!")
+
+	return nil
 }
