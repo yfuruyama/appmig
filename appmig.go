@@ -39,8 +39,37 @@ func NewAppmig(project, service string, verbose, quiet bool, executor Executor) 
 }
 
 func (a *Appmig) Run(version string, rates []float64, interval uint) error {
-	// check version existence
-	stdout, stderr, err := a.execCommandWithMessage(fmt.Sprintf("Checking existence of version %s... ", version),
+	if err := a.checkVersionExistence(version); err != nil {
+		return err
+	}
+
+	currentVersion, targetVersion, err := a.getVersionsForMigration(version)
+	if err != nil {
+		return err
+	}
+
+	// confirm user
+	fmt.Printf("\n")
+	fmt.Printf("Migrate traffic: project=%s, service=%s, from=%s, to=%s\n", a.project, a.service, currentVersion.Id, targetVersion.Id)
+	if !a.quiet {
+		if proceed := prompt("Do you want to continue?"); !proceed {
+			return nil
+		}
+	}
+	fmt.Printf("\n")
+
+	// migrate traffic step by step
+	if err := a.migrate(currentVersion, targetVersion, rates, interval); err != nil {
+		return err
+	}
+	fmt.Printf("\n")
+	fmt.Println("Finish migration!")
+
+	return nil
+}
+
+func (a *Appmig) checkVersionExistence(version string) error {
+	_, stderr, err := a.execCommandWithMessage(fmt.Sprintf("Checking existence of version %s... ", version),
 		"gcloud",
 		"app",
 		"versions",
@@ -54,9 +83,11 @@ func (a *Appmig) Run(version string, rates []float64, interval uint) error {
 		return errors.New(stderr)
 	}
 	fmt.Printf(": OK\n")
+	return nil
+}
 
-	// check serving version
-	stdout, stderr, err = a.execCommandWithMessage("Checking current serving version... ",
+func (a *Appmig) getVersionsForMigration(version string) (*ServiceVersion, *ServiceVersion, error) {
+	stdout, stderr, err := a.execCommandWithMessage("Checking current serving version... ",
 		"gcloud",
 		"app",
 		"versions",
@@ -67,12 +98,12 @@ func (a *Appmig) Run(version string, rates []float64, interval uint) error {
 		"--format=json",
 	)
 	if err != nil {
-		return errors.New(stderr)
+		return nil, nil, errors.New(stderr)
 	}
 
 	var servingVersions []ServiceVersion
 	if err = json.Unmarshal([]byte(stdout), &servingVersions); err != nil {
-		return fmt.Errorf("failed to parse current serving version: %s", err)
+		return nil, nil, fmt.Errorf("failed to parse current serving version: %s", err)
 	}
 	var servingVersionStrings []string
 	for _, s := range servingVersions {
@@ -82,16 +113,16 @@ func (a *Appmig) Run(version string, rates []float64, interval uint) error {
 
 	// validate serving versions
 	if len(servingVersions) == 0 {
-		return fmt.Errorf("No serving version found\n")
+		return nil, nil, fmt.Errorf("No serving version found\n")
 	}
 	if len(servingVersions) == 1 && servingVersions[0].Id == version {
-		return fmt.Errorf("Already %s is served\n", version)
+		return nil, nil, fmt.Errorf("Already %s is served\n", version)
 	}
 	if len(servingVersions) == 2 && servingVersions[0].Id != version && servingVersions[1].Id != version {
-		return fmt.Errorf("Multiple versions are served\n")
+		return nil, nil, fmt.Errorf("Multiple versions are served\n")
 	}
 	if len(servingVersions) > 2 {
-		return fmt.Errorf("Multiple versions are served\n")
+		return nil, nil, fmt.Errorf("Multiple versions are served\n")
 	}
 
 	var currentVersion ServiceVersion
@@ -112,27 +143,10 @@ func (a *Appmig) Run(version string, rates []float64, interval uint) error {
 		}
 	}
 
-	// confirm user
-	fmt.Printf("\n")
-	fmt.Printf("Migrate traffic: project=%s, service=%s, from=%s, to=%s\n", a.project, a.service, currentVersion.Id, targetVersion.Id)
-	if !a.quiet {
-		if proceed := a.prompt("Do you want to continue?"); !proceed {
-			return nil
-		}
-	}
-	fmt.Printf("\n")
-
-	// migrate traffic step by step
-	if err := a.migrate(currentVersion, targetVersion, rates, interval); err != nil {
-		return err
-	}
-	fmt.Printf("\n")
-	fmt.Println("Finish migration!")
-
-	return nil
+	return &currentVersion, &targetVersion, nil
 }
 
-func (a *Appmig) migrate(currentVersion, targetVersion ServiceVersion, rates []float64, interval uint) error {
+func (a *Appmig) migrate(currentVersion, targetVersion *ServiceVersion, rates []float64, interval uint) error {
 	for i, rate := range rates {
 		remainRate := 1.0 - rate
 		if rate <= targetVersion.Rate {
@@ -142,7 +156,7 @@ func (a *Appmig) migrate(currentVersion, targetVersion ServiceVersion, rates []f
 		targetVersion.Rate = rate
 
 		var splits string
-		if targetVersion.Rate == 1.0 {
+		if int(targetVersion.Rate) == 1 {
 			splits = fmt.Sprintf("%s=1.00", targetVersion.Id)
 		} else {
 			splits = fmt.Sprintf("%s=%0.2f,%s=%0.2f", currentVersion.Id, currentVersion.Rate, targetVersion.Id, targetVersion.Rate)
@@ -181,7 +195,7 @@ func (a *Appmig) execCommandWithMessage(msg string, name string, arg ...string) 
 		fmt.Println(command)
 	}
 
-	ticker := a.printProgressingMessage(msg)
+	ticker := printProgressingMessage(msg)
 	stdout, stderr, err := a.executor.ExecCommand(name, arg...)
 	ticker.Stop()
 	time.Sleep(time.Microsecond * 500) // waiting for progressing print
@@ -190,14 +204,15 @@ func (a *Appmig) execCommandWithMessage(msg string, name string, arg ...string) 
 }
 
 func (a *Appmig) execFuncWithMessage(msg string, fun func()) {
-	ticker := a.printProgressingMessage(msg)
+	ticker := printProgressingMessage(msg)
 	fun()
 	ticker.Stop()
 	time.Sleep(time.Microsecond * 500) // waiting for progressing print
 	fmt.Printf("\r%s", msg)            // print message without progressing mark
 }
 
-func (a *Appmig) printProgressingMessage(msg string) *time.Ticker {
+// Helper
+func printProgressingMessage(msg string) *time.Ticker {
 	progressMarks := []string{"-", "\\", "|", "/"}
 	ticker := time.NewTicker(time.Millisecond * 100)
 	go func() {
@@ -212,7 +227,7 @@ func (a *Appmig) printProgressingMessage(msg string) *time.Ticker {
 	return ticker
 }
 
-func (a *Appmig) prompt(msg string) bool {
+func prompt(msg string) bool {
 	fmt.Printf("%s [Y/n] ", msg)
 	s := bufio.NewScanner(os.Stdin)
 	s.Scan()

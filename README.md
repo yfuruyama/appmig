@@ -1,6 +1,4 @@
-# Appmig - App Engine step-by-step traffic migration tool
-
-[![CircleCI](https://circleci.com/gh/addsict/appmig.svg?style=svg)](https://circleci.com/gh/addsict/appmig)
+# Appmig - App Engine traffic migration tool [![CircleCI](https://circleci.com/gh/addsict/appmig.svg?style=svg)](https://circleci.com/gh/addsict/appmig)
 
 Appmig is a traffic migration tool for App Engine.
 `gcloud app versions migrate` is 
