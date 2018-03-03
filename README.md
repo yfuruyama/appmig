@@ -1,10 +1,10 @@
 # Appmig - App Engine traffic migration tool [![CircleCI](https://circleci.com/gh/addsict/appmig.svg?style=svg)](https://circleci.com/gh/addsict/appmig)
 
-This tool allows you to migrate an App Engine service gradually from one version to another.
+This tool allows you to migrate an App Engine service's version gradually from one version to another.
 
 ## Description
 
-Normally, you can migrate a service by `gcloud app versions migrate` command or from the web console, but the speed of migration is out of control, sometimes it ends very fast.  
+Normally, you can migrate an App Engine service's version by `gcloud app versions migrate` command or from the web console, but the speed of migration is out of control, sometimes it ends very fast.  
 With this tool, you can control how fast migration proceeds precisely.
 
 ## Installation
