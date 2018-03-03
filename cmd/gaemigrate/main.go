@@ -129,6 +129,7 @@ func main() {
 
 	// TODO: check version exists
 	// TODO: servingversions == 0
+	// TODO: dryrun?
 
 	stdout, stderr, err := execCommandWithMessage("Checking current serving version...",
 		"gcloud",

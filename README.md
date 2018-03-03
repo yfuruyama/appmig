@@ -1,15 +1,16 @@
+gaemigrate
+===
 
 ```
-$ gaemigrate --project=test --service=foo --version=v2 --rate=1,5,10,30,50,75,100 --interval=60
+$ go run cmd/gaemigrate/main.go --project=myproject --service=default --version=v2 --rate=10,50,100 --interval=5
 
-CURRENT: v1
-[--------------->    ] 70%
-
-TARGET:  v2
-[------>             ] 30%
-
-next: gcloud --project=test app services set-traffic foo --splits v2=.9,v1=.1 --split-by ip
-next: gcloud --project=test app services set-traffic foo --splits v2=.8,v1=.2 --split-by ip
-next: gcloud --project=test app services set-traffic foo --splits v2=.7,v1=.3 --split-by ip
-...
+Checking current serving version... : v1(100%)
+Migration: project = myproject, service = default, from = v1, to = v2
+Do you want to continue? [Y/n]
+Migrating from v1(90%) to v2(10%)... DONE
+Waiting...
+Migrating from v1(50%) to v2(50%)... DONE
+Waiting...
+Migrating from v1(0%) to v2(100%)... DONE
+Finish migration!
 ```
