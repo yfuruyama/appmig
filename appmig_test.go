@@ -86,7 +86,7 @@ func TestGetVersionsForMigration(t *testing.T) {
 			executor.stdout = test.response
 			currentVersion, targetVersion, err := appmig.getVersionsForMigration(test.version)
 			if err != nil {
-				t.Errorf("getVersionsForMigration got error: ", err)
+				t.Errorf("getVersionsForMigration got error: %s", err)
 			}
 			if currentVersion.Id != test.expectedCurrentVersion.Id || currentVersion.Rate != test.expectedCurrentVersion.Rate {
 				t.Errorf("invalid version: expected=%v, got=%v", test.expectedCurrentVersion, currentVersion)
