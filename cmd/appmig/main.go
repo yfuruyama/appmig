@@ -109,12 +109,14 @@ func main() {
 	var version string
 	var rate string
 	var interval uint
+	var quiet bool
 
 	flag.StringVar(&project, "project", "", "Project ID")
 	flag.StringVar(&service, "service", "", "Service ID")
 	flag.StringVar(&version, "version", "", "Version")
 	flag.StringVar(&rate, "rate", "", "Rate (comma separated)")
 	flag.UintVar(&interval, "interval", 10, "Interval Second")
+	flag.BoolVar(&quiet, "quiet", false, "Disable all interactive prompts")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -129,11 +131,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: check version exists
-	// TODO: servingversions == 0
-	// TODO: dryrun?
+	// check version existence
+	stdout, stderr, err := execCommandWithMessage(fmt.Sprintf("Checking existence of version %s...", version),
+		"gcloud",
+		"app",
+		"versions",
+		"describe",
+		"--project="+project,
+		"--service="+service,
+		"--format=value(id)",
+		version,
+	)
+	if err != nil {
+		fmt.Printf(" %s", stderr)
+		os.Exit(1)
+	}
+	fmt.Printf(" : OK\n")
 
-	stdout, stderr, err := execCommandWithMessage("Checking current serving version...",
+	// check serving version
+	stdout, stderr, err = execCommandWithMessage("Checking current serving version...",
 		"gcloud",
 		"app",
 		"versions",
@@ -144,7 +160,7 @@ func main() {
 		"--format=json",
 	)
 	if err != nil {
-		fmt.Printf("failed to get current serving version: project=%s, version=%s, error=%s", project, version, stderr)
+		fmt.Printf(" %s", stderr)
 		os.Exit(1)
 	}
 
@@ -160,17 +176,21 @@ func main() {
 	fmt.Printf(" : %s\n", strings.Join(servingVersionStrings, ", "))
 
 	// validate serving versions
+	if len(servingVersions) == 0 {
+		fmt.Println("No serving version found")
+		os.Exit(1)
+	}
 	if len(servingVersions) == 1 && servingVersions[0].Id == version {
 		fmt.Printf("Already %s is serving\n", version)
 		os.Exit(0)
 	}
 	if len(servingVersions) == 2 && servingVersions[0].Id != version && servingVersions[1].Id != version {
 		fmt.Printf("Multiple versions are serving\n")
-		os.Exit(0)
+		os.Exit(1)
 	}
 	if len(servingVersions) > 2 {
 		fmt.Printf("Multiple versions are serving\n")
-		os.Exit(0)
+		os.Exit(1)
 	}
 
 	var currentVersion ServingVersion
@@ -192,11 +212,14 @@ func main() {
 	}
 
 	// confirm user
-	fmt.Printf("Migration: project = %s, service = %s, from = %s, to = %s\n", project, service, currentVersion.Id, targetVersion.Id)
-	proceed := prompt("Do you want to continue?")
-	if !proceed {
-		os.Exit(0)
+	fmt.Printf("\n")
+	fmt.Printf("Migrate traffic: project = %s, service = %s, from = %s, to = %s\n", project, service, currentVersion.Id, targetVersion.Id)
+	if !quiet {
+		if proceed := prompt("Do you want to continue?"); !proceed {
+			os.Exit(0)
+		}
 	}
+	fmt.Printf("\n")
 
 	for step := 0; step < len(rates); step++ {
 		nextRate := rates[step]
@@ -228,7 +251,7 @@ func main() {
 			fmt.Printf("failed to set traffic: rate=%d, error=%s", uint(nextRate)*100, stderr)
 			os.Exit(1)
 		}
-		fmt.Printf(" DONE\n")
+		fmt.Printf(" : DONE\n")
 
 		if step != len(rates)-1 {
 			execFuncWithMessage("Waiting...", func() {
