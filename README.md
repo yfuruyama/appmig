@@ -10,7 +10,7 @@ With this tool, you can control how fast migration proceeds precisely.
 ## Installation
 
 ```
-$ go get -u github.com/addsict/appmig
+$ go get -u github.com/yfuruyama/appmig
 ```
 
 This tool uses [gcloud](https://cloud.google.com/sdk/gcloud/) to manipulate App Engine services.  
