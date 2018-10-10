@@ -1,4 +1,5 @@
-# Appmig - App Engine traffic migration tool [![CircleCI](https://circleci.com/gh/addsict/appmig.svg?style=svg)](https://circleci.com/gh/addsict/appmig)
+# Appmig - App Engine traffic migration tool
+[![CircleCI](https://circleci.com/gh/yfuruyama/appmig.svg?style=svg)](https://circleci.com/gh/yfuruyama/appmig)
 
 This tool allows you to migrate an App Engine service's version gradually from one version to another.
 
